@@ -625,6 +625,10 @@ test("connector verification preserves the host-refreshed catalog evidence", asy
   const selectedComposer = { selected: true };
   const page = {
     reload: async () => { calls.push("reload"); },
+    getByRole: (_role: string, options: { name: string }) => {
+      expect(options.name).toBe("Personalized");
+      return { filter: () => ({ isVisible: async () => true }) };
+    },
     getByText: () => ({ exactConnectorLabel: true }),
     locator: () => menuRows,
     keyboard: {
@@ -775,6 +779,11 @@ test("tool-capable prompts use the shared Playwright connector selection before 
     pressSequentially: async (value: string) => { calls.push(["type", value]); },
   };
   const page = {
+    getByRole: (role: string, options: { name: string; exact: boolean }) => {
+      expect(role).toBe("button");
+      expect(options).toEqual({ name: "Personalized", exact: true });
+      return { filter: () => ({ isVisible: async () => true }) };
+    },
     getByText: () => ({ exactConnectorLabel: true }),
     locator: (selector: string) => selector.includes("__menu-item")
       ? { filter: () => appResult, evaluateAll: async () => [] }
