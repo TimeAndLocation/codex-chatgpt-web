@@ -196,6 +196,40 @@ export async function dismissChatGptTemporaryChatOnboarding(page: Page): Promise
   return true;
 }
 
+export async function ensureChatGptPersonalizedConnectorAccess(
+  page: Page,
+  captureDiagnostic?: (checkpoint: string) => Promise<void>,
+): Promise<void> {
+  const personalized = page.getByRole("button", { name: "Personalized", exact: true }).filter({ visible: true });
+  if (await personalized.isVisible().catch(() => false)) {
+    await captureDiagnostic?.("personalization-already-enabled");
+    return;
+  }
+  const unpersonalized = page.getByRole("button", { name: "Unpersonalized", exact: true }).filter({ visible: true });
+  if (!await unpersonalized.isVisible().catch(() => false)) {
+    throw new Error("ChatGPT temporary chat could not be switched to Personalized: personalization control was not visible");
+  }
+  await captureDiagnostic?.("personalization-unpersonalized");
+  await unpersonalized.click({ force: true });
+  await settleChatGptUi();
+  const menuId = await unpersonalized.getAttribute("aria-controls");
+  if (!menuId) {
+    throw new Error("ChatGPT temporary chat could not be switched to Personalized: personalization menu did not expose aria-controls");
+  }
+  const menu = page.locator(`[id=${JSON.stringify(menuId)}]`);
+  await menu.waitFor({ state: "visible", timeout: 5_000 });
+  const choice = menu.getByText("Personalized", { exact: true }).last();
+  await choice.waitFor({ state: "visible", timeout: 5_000 });
+  await choice.click({ force: true });
+  try {
+    await personalized.waitFor({ state: "visible", timeout: 10_000 });
+  } catch (error) {
+    if (!(error instanceof Error) || error.name !== "TimeoutError") throw error;
+    throw new Error("ChatGPT temporary chat could not be switched to Personalized");
+  }
+  await captureDiagnostic?.("personalization-enabled");
+}
+
 type ChatGptTextScope = Pick<Locator, "getByText">;
 
 const chatGptSubscriptionFailureAlert = (page: Page): Locator => page
@@ -1709,6 +1743,9 @@ export class ChatGptBrowserWorker {
     connectorAttemptBudget?: ChatGptConnectorAttemptBudget,
   ): Promise<void> {
     throwIfPromptAttachmentAborted(abortSignal);
+    if (localTools) {
+      await ensureChatGptPersonalizedConnectorAccess(page, captureDiagnostic);
+    }
     if (!localTools) {
       const composer = await this.activeComposer(page);
       // Playwright's multiline fill maps through an input action that ChatGPT's Lexical editor can
@@ -1917,6 +1954,7 @@ export class ChatGptBrowserWorker {
   private async verifyConnectorExclusive(): Promise<string> {
     const page = await this.ensurePage();
     await this.prepareTemporaryChatSurface(page);
+    await ensureChatGptPersonalizedConnectorAccess(page);
     // The launcher refreshes its owned ChatGPT document before starting this helper. A second
     // reload here can discard the first catalog's exact mismatch evidence and report a generic
     // menu failure instead of identifying the connector the account actually exposes.
